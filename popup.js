@@ -101,11 +101,39 @@ function render() {
     $("items").append(card);
   }
 }
+// Find the best media player in each tab: currently playing first, then video.
+function primaryMedia(entries) {
+  return entries.sort(
+    (a, b) =>
+      Number(a.paused) - Number(b.paused) ||
+      Number(b.kind === "VIDEO") - Number(a.kind === "VIDEO") ||
+      Number(b.frameId === 0) - Number(a.frameId === 0),
+  )[0];
+}
+
 async function scan() {
   if (busy) return;
   busy = true;
+  const status = document.getElementById("status");
+
+  if (status) {
+    status.textContent = "Refreshing...";
+    status.classList.add("active");
+  }
+
+  const refreshBtn = document.getElementById("refresh");
+
+  refreshBtn.disabled = true;
+  refreshBtn.classList.add("refreshing");
+  refreshBtn.setAttribute("aria-busy", "true");
+
+  if (status) {
+    status.textContent = "Refreshing media tabs...";
+  }
+
   try {
     const tabs = await chrome.tabs.query({});
+
     const results = await Promise.all(
       tabs.map(async (t) => {
         try {
@@ -113,37 +141,63 @@ async function scan() {
             target: { tabId: t.id, allFrames: true },
             files: ["content.js"],
           });
+
           const frames = await chrome.scripting.executeScript({
             target: { tabId: t.id, allFrames: true },
             func: () => globalThis.__mediaControlScan?.() || [],
           });
+
           let site;
+
           try {
             site = new URL(t.url).hostname.replace(/^www\./, "");
           } catch {
-            site = t.title;
+            site = t.title || "Unknown site";
           }
-          return frames.flatMap((f) =>
-            f.result.map((i) => ({
+
+          const media = frames.flatMap((f) =>
+            (f.result || []).map((i) => ({
               ...i,
-              title: i.title || t.title,
+              title: i.title || t.title || "Untitled media",
               tabId: t.id,
               frameId: f.frameId,
               site,
               icon: t.favIconUrl,
             })),
           );
+
+          return media.length ? primaryMedia(media) : null;
         } catch {
-          return [];
+          return null;
         }
       }),
     );
-    items = results.flat().sort((a, b) => Number(a.paused) - Number(b.paused));
+
+    items = results
+      .filter(Boolean)
+      .sort((a, b) => Number(a.paused) - Number(b.paused));
+
     render();
+
+    if (status) {
+      status.textContent = `Updated: ${items.length} media tab${items.length === 1 ? "" : "s"}`;
+    }
+  } catch (err) {
+    if (status) {
+      status.textContent = `Refresh failed: ${err.message}`;
+    }
   } finally {
+    if (status) {
+      status.classList.remove("active");
+    }
     busy = false;
+
+    refreshBtn.disabled = false;
+    refreshBtn.classList.remove("refreshing");
+    refreshBtn.removeAttribute("aria-busy");
   }
 }
+
 $("refresh").onclick = scan;
 $("pauseAll").onclick = async () => {
   await Promise.all(
@@ -163,7 +217,7 @@ $("muteAll").onclick = async () => {
   render();
 };
 scan();
-document.getElementById("settingsBtn").addEventListener("click", () => {
+document.getElementById("settingsBtn")?.addEventListener("click", () => {
   chrome.tabs.create({
     url: `chrome://extensions/?id=${chrome.runtime.id}`,
   });
@@ -174,12 +228,14 @@ chrome.commands.getAll((commands) => {
     (command) => command.name === "_execute_action",
   );
 
-  document.getElementById("currentShortcut").textContent =
-    shortcut?.shortcut || "Not assigned";
+  if (document.getElementById("currentShortcut")) {
+    document.getElementById("currentShortcut").textContent =
+      shortcut?.shortcut || "Not assigned";
+  }
 });
 
 // Open Brave's shortcut settings
-document.getElementById("changeShortcut").addEventListener("click", () => {
+document.getElementById("changeShortcut")?.addEventListener("click", () => {
   chrome.tabs.create({
     url: "brave://extensions/shortcuts",
   });
