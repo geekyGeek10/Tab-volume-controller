@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <button id="settingsBtn" title="Extension settings">⚙</button>
+    <div class="shortcut-setting">
+      <span>Keyboard Shortcut</span>
+      <span id="currentShortcut">Not assigned</span>
+
+      <button id="changeShortcut">Change Shortcut ↗</button>
+    </div>
+  </head>
+  <body>
+    <header>
+      <h1>Media Control</h1>
+      <button id="refresh" title="Refresh">↻</button>
+    </header>
+    <p id="summary">Scanning tabs…</p>
+    <main id="items"></main>
+    <footer>
+      <button id="pauseAll">Pause all</button
+      ><button id="muteAll">Mute all</button>
+    </footer>
+    <p id="status" role="status"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>
