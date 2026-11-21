@@ -74,12 +74,29 @@ function render() {
     slider.setAttribute("aria-label", "Volume for " + i.title);
     const out = document.createElement("output");
     out.textContent = slider.value + "%";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "close-tab";
+    closeBtn.textContent = "✕";
+    closeBtn.title = "Close this tab";
+
+    closeBtn.onclick = async () => {
+      try {
+        await chrome.tabs.remove(i.tabId);
+
+        // Remove every media entry belonging to the closed tab
+        items = items.filter((item) => item.tabId !== i.tabId);
+
+        render();
+      } catch (err) {
+        $("status").textContent = "Could not close tab: " + err.message;
+      }
+    };
     slider.oninput = () => {
       out.textContent = slider.value + "%";
       i.volume = Number(slider.value) / 100;
       action(i, "volume", i.volume);
     };
-    row.append(play, mute, slider, out);
+    row.append(play, mute, slider, out, closeBtn);
     card.append(top, title, row);
     $("items").append(card);
   }
