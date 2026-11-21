@@ -4,9 +4,18 @@
   const ids = new WeakMap();
   let next = 0;
   const media = () =>
-    Array.from(document.querySelectorAll("video,audio")).filter(
-      (e) => e.currentSrc || e.src || e.srcObject,
-    );
+    Array.from(document.querySelectorAll("video, audio"))
+      .filter((e) => e.currentSrc || e.src || e.srcObject)
+      .sort((a, b) => {
+        const score = (e) => {
+          const rect = e.getBoundingClientRect();
+          const area = rect.width * rect.height;
+
+          return (!e.paused ? 10000000 : 0) + (area > 0 ? 1000000 : 0) + area;
+        };
+
+        return score(b) - score(a);
+      });
   const id = (e) => {
     if (!ids.has(e)) ids.set(e, ++next);
     return ids.get(e);
