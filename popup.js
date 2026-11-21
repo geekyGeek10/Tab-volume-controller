@@ -74,6 +74,42 @@ function render() {
     slider.setAttribute("aria-label", "Volume for " + i.title);
     const out = document.createElement("output");
     out.textContent = slider.value + "%";
+
+    const goToBtn = document.createElement("button");
+
+    goToBtn.type = "button";
+    goToBtn.className = "go-to-tab";
+    goToBtn.textContent = "↗";
+    goToBtn.title = "Go to this tab";
+
+    goToBtn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      try {
+        const tab = await chrome.tabs.get(i.tabId);
+
+        // Activate the existing tab
+        await chrome.tabs.update(i.tabId, {
+          active: true,
+        });
+
+        // Focus its browser window
+        await chrome.windows.update(tab.windowId, {
+          focused: true,
+        });
+
+        window.close();
+      } catch (err) {
+        console.error("Go to tab failed:", err);
+
+        const status = document.getElementById("status");
+        if (status) {
+          status.textContent = "Go to tab failed: " + err.message;
+        }
+      }
+    });
+
     const closeBtn = document.createElement("button");
     closeBtn.className = "close-tab";
     closeBtn.textContent = "✕";
@@ -96,7 +132,7 @@ function render() {
       i.volume = Number(slider.value) / 100;
       action(i, "volume", i.volume);
     };
-    row.append(play, mute, slider, out, closeBtn);
+    row.append(play, mute, slider, out, goToBtn, closeBtn);
     card.append(top, title, row);
     $("items").append(card);
   }
