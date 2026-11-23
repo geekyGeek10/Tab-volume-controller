@@ -1,20 +1,99 @@
 const $ = (id) => document.getElementById(id);
 let items = [],
   busy = false;
+
 const action = async (item, action, value) => {
   try {
+    // Spotify-specific volume and mute controls
+    if (item.kind === "SPOTIFY" && (action === "volume" || action === "mute")) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: item.tabId },
+        world: "MAIN",
+        func: (action, value) => {
+          const bar = document.querySelector('[data-testid="volume-bar"]');
+
+          if (!bar) {
+            return { ok: false, error: "Spotify volume bar not found" };
+          }
+
+          if (action === "mute") {
+            const button = bar.querySelector(
+              '[data-testid="volume-bar-toggle-mute-button"]',
+            );
+
+            if (!button) {
+              return { ok: false, error: "Mute button not found" };
+            }
+
+            const isMuted = (button.getAttribute("aria-label") || "")
+              .toLowerCase()
+              .includes("unmute");
+
+            if (isMuted !== value) {
+              button.click();
+            }
+
+            return { ok: true };
+          }
+
+          if (action === "volume") {
+            const slider = bar.querySelector('input[type="range"]');
+
+            if (!slider) {
+              return { ok: false, error: "Volume slider not found" };
+            }
+
+            const newValue = String(Math.max(0, Math.min(1, value)));
+
+            const setter = Object.getOwnPropertyDescriptor(
+              HTMLInputElement.prototype,
+              "value",
+            ).set;
+
+            setter.call(slider, newValue);
+
+            slider.dispatchEvent(new Event("input", { bubbles: true }));
+
+            slider.dispatchEvent(new Event("change", { bubbles: true }));
+
+            return { ok: true };
+          }
+        },
+        args: [action, value],
+      });
+
+      const result = results[0]?.result;
+
+      if (!result?.ok) {
+        throw Error(result?.error || "Spotify action failed");
+      }
+
+      return true;
+    }
+
+    // Existing YouTube, Kick and Spotify play/pause controls
     const r = await chrome.tabs.sendMessage(
       item.tabId,
-      { type: "mediaAction", id: item.id, action, value },
+      {
+        type: "mediaAction",
+        id: item.id,
+        action,
+        value,
+      },
       { frameId: item.frameId },
     );
-    if (!r?.ok) throw Error(r?.error || "Media no longer available");
+
+    if (!r?.ok) {
+      throw Error(r?.error || "Media no longer available");
+    }
+
     return true;
   } catch (e) {
     $("status").textContent = e.message;
     return false;
   }
 };
+
 function render() {
   $("items").replaceChildren();
   $("summary").textContent =
@@ -132,6 +211,7 @@ function render() {
       i.volume = Number(slider.value) / 100;
       action(i, "volume", i.volume);
     };
+
     row.append(play, mute, slider, out, goToBtn, closeBtn);
     card.append(top, title, row);
     $("items").append(card);
@@ -191,7 +271,7 @@ async function scan() {
             site = t.title || "Unknown site";
           }
 
-          const media = frames.flatMap((f) =>
+          let media = frames.flatMap((f) =>
             (f.result || []).map((i) => ({
               ...i,
               title: i.title || t.title || "Untitled media",
@@ -202,7 +282,110 @@ async function scan() {
             })),
           );
 
+          // Spotify Web Player fallback
+          if (site === "open.spotify.com" && media.length === 0) {
+            const spotifyData = await chrome.scripting.executeScript({
+              target: { tabId: t.id },
+              world: "MAIN",
+              func: () => {
+                const session = navigator.mediaSession;
+                const metadata = session?.metadata;
+
+                if (!metadata?.title) return null;
+
+                const bar = document.querySelector(
+                  '[data-testid="volume-bar"]',
+                );
+
+                const slider = bar?.querySelector('input[type="range"]');
+
+                const muteButton = bar?.querySelector(
+                  '[data-testid="volume-bar-toggle-mute-button"]',
+                );
+
+                return {
+                  title: metadata.title,
+                  artist: metadata.artist || "",
+                  paused: session.playbackState !== "playing",
+                  volume: slider ? Number(slider.value) : 1,
+                  muted: muteButton
+                    ? (muteButton.getAttribute("aria-label") || "")
+                        .toLowerCase()
+                        .includes("unmute")
+                    : false,
+                };
+              },
+            });
+
+            const song = spotifyData[0]?.result;
+
+            if (song) {
+              media.push({
+                id: 0,
+                tabId: t.id,
+                frameId: 0,
+                site,
+                icon: t.favIconUrl,
+                title: `${song.title}${song.artist ? " - " + song.artist : ""}`,
+                paused: song.paused,
+                muted: song.muted,
+                volume: song.volume,
+                kind: "SPOTIFY",
+              });
+            }
+          }
+
+          // Important: return detected media for every tab
           return media.length ? primaryMedia(media) : null;
+
+          row.append(play, mute, slider, out, goToBtn, closeBtn);
+          frames.flatMap((f) =>
+            (f.result || []).map((i) => ({
+              ...i,
+              title: i.title || t.title || "Untitled media",
+              tabId: t.id,
+              frameId: f.frameId,
+              site,
+              icon: t.favIconUrl,
+            })),
+          );
+
+          // Spotify Web Player fallback
+          if (site === "open.spotify.com" && media.length === 0) {
+            const spotifyData = await chrome.scripting.executeScript({
+              target: { tabId: t.id },
+              world: "MAIN",
+              func: () => {
+                const session = navigator.mediaSession;
+                const metadata = session?.metadata;
+
+                if (!metadata?.title) return null;
+
+                return {
+                  title: metadata.title,
+                  artist: metadata.artist || "",
+                  paused: session.playbackState !== "playing",
+                };
+              },
+            });
+
+            const song = spotifyData[0]?.result;
+
+            if (song) {
+              media.push({
+                id: 0,
+                tabId: t.id,
+                frameId: 0,
+                site,
+                icon: t.favIconUrl,
+                title: `${song.title}${song.artist ? " - " + song.artist : ""}`,
+                paused: song.paused,
+                muted: false,
+                volume: 1,
+                kind: "SPOTIFY",
+              });
+            }
+          }
         } catch {
           return null;
         }

@@ -5,7 +5,10 @@
   let next = 0;
   const media = () =>
     Array.from(document.querySelectorAll("video, audio"))
-      .filter((e) => e.currentSrc || e.src || e.srcObject)
+      .filter(
+        (e) =>
+          e.currentSrc || e.src || e.srcObject || e.readyState > 0 || !e.paused,
+      )
       .sort((a, b) => {
         const score = (e) => {
           const rect = e.getBoundingClientRect();
@@ -22,6 +25,37 @@
   };
   chrome.runtime.onMessage.addListener((m, s, reply) => {
     if (m.type !== "mediaAction") return;
+
+    // Spotify Web Player controls
+    if (location.hostname === "open.spotify.com" && m.id === 0) {
+      if (m.action === "play" || m.action === "pause") {
+        const button = document.querySelector(
+          '[data-testid="control-button-playpause"]',
+        );
+
+        if (!button) {
+          reply({ ok: false, error: "Spotify play button not found" });
+          return;
+        }
+
+        const label = (button.getAttribute("aria-label") || "").toLowerCase();
+        const isPaused = label.includes("play") && !label.includes("pause");
+
+        if (
+          (m.action === "play" && isPaused) ||
+          (m.action === "pause" && !isPaused)
+        ) {
+          button.click();
+        }
+
+        reply({ ok: true });
+        return;
+      }
+
+      reply({ ok: false, error: "Spotify volume control not supported yet" });
+      return;
+    }
+
     const e = media().find((e) => id(e) === m.id);
     if (!e) {
       reply({ ok: false });
